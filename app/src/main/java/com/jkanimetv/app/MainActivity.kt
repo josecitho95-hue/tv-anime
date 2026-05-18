@@ -8,7 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Explore
@@ -16,10 +18,13 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -66,70 +71,46 @@ fun AppNavigation() {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route?.substringBefore('/')
 
-    fun navigateTo(route: String) {
-        if (currentRoute != route) {
-            navController.navigate(route) {
-                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
-        }
-    }
-
-    NavigationDrawer(
-        drawerContent = { drawerValue ->
-            val expanded = drawerValue == DrawerValue.Open
-            Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .background(SurfaceElevated)
-                    .padding(vertical = 24.dp, horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // Brand header — "JK" colapsado / "JK Anime TV" expandido.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .height(36.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (expanded) "JK Anime TV" else "JK",
-                        color = AccentRed,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
-                    )
-                }
-                Spacer(Modifier.height(20.dp))
-
-                SidebarTabs.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    NavigationDrawerItem(
-                        selected = selected,
-                        onClick = { navigateTo(tab.route) },
-                        leadingContent = {
-                            androidx.compose.material3.Icon(
-                                imageVector = tab.icon,
-                                contentDescription = tab.label,
-                                modifier = Modifier.size(22.dp)
-                            )
+    Row(modifier = Modifier.fillMaxSize().background(DarkBg)) {
+        // Sidebar permanente — 200 dp, sin animaciones, sin tricks de foco.
+        Column(
+            modifier = Modifier
+                .width(200.dp)
+                .fillMaxHeight()
+                .background(SurfaceElevated)
+                .padding(vertical = 24.dp, horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "JK Anime TV",
+                color = AccentRed,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.height(20.dp))
+            SidebarTabs.forEach { tab ->
+                val selected = currentRoute == tab.route
+                SidebarItem(
+                    tab = tab,
+                    selected = selected,
+                    onClick = {
+                        if (currentRoute != tab.route) {
+                            navController.navigate(tab.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    ) {
-                        Text(
-                            text = tab.label,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        )
                     }
-                }
+                )
             }
         }
-    ) {
+
+        // Content
         NavHost(
             navController = navController,
             startDestination = "home",
-            modifier = Modifier.fillMaxSize().background(DarkBg),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
             enterTransition = {
                 slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) +
                     fadeIn(tween(250))
@@ -243,5 +224,46 @@ fun AppNavigation() {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SidebarItem(tab: SidebarTab, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val bg = when {
+        selected -> AccentRed
+        focused -> Color.White.copy(alpha = 0.10f)
+        else -> Color.Transparent
+    }
+    val contentColor = when {
+        selected -> Color.White
+        focused -> Color.White
+        else -> TextSecondary
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(bg)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = tab.icon,
+            contentDescription = tab.label,
+            tint = contentColor,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = tab.label,
+            color = contentColor,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        )
     }
 }
