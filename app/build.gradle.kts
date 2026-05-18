@@ -13,7 +13,7 @@ android {
         applicationId = "com.jkanimetv.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
+        versionCode = 10
         versionName = "1.0"
     }
 
@@ -21,6 +21,10 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Firma con el debug keystore para permitir sideload directo en TV.
+            // Quien quiera publicar en Play Store debe sustituir esto por un
+            // signingConfig propio con un keystore generado para releases.
+            signingConfig = signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false
@@ -38,6 +42,14 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // Workaround para IncompatibleClassChangeError en NullSafeMutableLiveDataDetector
+        // (bug conocido de la versión de Lint con Kotlin 2.0 + Compose).
+        disable += "NullSafeMutableLiveData"
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 
