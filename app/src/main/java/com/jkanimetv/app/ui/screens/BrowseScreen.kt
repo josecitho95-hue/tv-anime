@@ -1,13 +1,15 @@
 package com.jkanimetv.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -160,7 +162,18 @@ private fun FilterRow(
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.width(56.dp)
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        val listState = rememberLazyListState()
+        // When the active selection of this filter row is reset to "Todos"
+        // (selected == ""), snap the LazyRow back to the start so the first
+        // chip isn't half-visible due to a focus-driven scroll offset.
+        LaunchedEffect(selected) {
+            if (selected.isEmpty()) listState.animateScrollToItem(0)
+        }
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp)
+        ) {
             items(options.size) { idx ->
                 val (value, display) = options[idx]
                 FilterChip(value = value, label = display, selected = selected == value, onSelect = onSelect)
@@ -169,34 +182,34 @@ private fun FilterRow(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun FilterChip(value: String, label: String, selected: Boolean, onSelect: (String) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val bg = when {
         selected -> AccentRed
-        focused -> CardBgHover
-        else -> CardBg
+        focused -> Color.White.copy(alpha = 0.10f)
+        else -> Color.Transparent
     }
-    Button(
-        onClick = { onSelect(value) },
+    val textColor = when {
+        selected -> Color.White
+        focused -> Color.White
+        else -> TextSecondary
+    }
+    Box(
         modifier = Modifier
             .height(28.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(bg)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
-            .border(
-                width = if (focused && !selected) 1.dp else 0.dp,
-                color = Color.White.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        shape = ButtonDefaults.shape(RoundedCornerShape(14.dp)),
-        colors = ButtonDefaults.colors(containerColor = bg, focusedContainerColor = bg),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+            .clickable { onSelect(value) }
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            color = Color.White,
+            color = textColor,
             style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
         )
     }

@@ -7,26 +7,24 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.*
+import com.jkanimetv.app.ui.components.Sidebar
 import com.jkanimetv.app.ui.player.PlayerActivity
 import com.jkanimetv.app.ui.screens.*
 import com.jkanimetv.app.ui.theme.TvTypography
@@ -52,80 +50,37 @@ fun AppNavigation() {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route?.substringBefore('/')
 
-    val tabs = listOf(
-        "home" to "Inicio",
-        "schedule" to "Horario",
-        "browse" to "Explorar",
-        "search" to "Buscar",
-        "favorites" to "Favoritos"
+    // Sidebar expands (icons + labels) when any of its items has focus, and
+    // collapses (icons only) when focus moves to the content area.
+    var sidebarHasFocus by remember { mutableStateOf(true) }
+    val sidebarWidth by animateDpAsState(
+        targetValue = if (sidebarHasFocus) 240.dp else 72.dp,
+        animationSpec = tween(durationMillis = 220),
+        label = "sidebar-width"
     )
 
-    Column(
+    fun navigateTo(route: String) {
+        if (currentRoute != route) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBg)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceElevated)
-                .padding(horizontal = 32.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "JKAnime TV",
-                color = AccentRed,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(end = 24.dp)
+        Box(modifier = Modifier.width(sidebarWidth).fillMaxHeight()) {
+            Sidebar(
+                expanded = sidebarHasFocus,
+                currentRoute = currentRoute,
+                onSidebarFocusChange = { sidebarHasFocus = it },
+                onTabActivated = ::navigateTo
             )
-            val selectedIdx = tabs.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0)
-            // Track which tab the D-pad is focused on so the pill follows
-            // the cursor instead of waiting for OK to confirm.
-            var focusedTabIndex by remember { mutableStateOf(selectedIdx) }
-            TabRow(
-                selectedTabIndex = selectedIdx,
-                indicator = { tabPositions, doesHaveFocus ->
-                    val indicatorIdx = (if (doesHaveFocus) focusedTabIndex else selectedIdx)
-                        .coerceIn(0, tabPositions.lastIndex.coerceAtLeast(0))
-                    if (indicatorIdx in tabPositions.indices) {
-                        TabRowDefaults.PillIndicator(
-                            currentTabPosition = tabPositions[indicatorIdx],
-                            doesTabRowHaveFocus = doesHaveFocus,
-                            activeColor = AccentRed,
-                            inactiveColor = AccentRed.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-            ) {
-                tabs.forEachIndexed { idx, (route, label) ->
-                    val isSelected = idx == selectedIdx
-                    Tab(
-                        selected = isSelected,
-                        // Focus = navigate: as soon as the D-pad lands on a tab,
-                        // jump to that screen. saveState/restoreState makes it
-                        // cheap because previously-visited tabs restore in ms.
-                        onFocus = {
-                            focusedTabIndex = idx
-                            if (currentRoute != route) {
-                                navController.navigate(route) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        onClick = { /* navigation already happened on focus */ }
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            ),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-                }
-            }
         }
 
         NavHost(
