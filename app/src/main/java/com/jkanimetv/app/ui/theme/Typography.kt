@@ -1,12 +1,21 @@
 package com.jkanimetv.app.ui.theme
 
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Typography
+import com.jkanimetv.app.R
 
-private val Default = FontFamily.SansSerif
+val Inter = FontFamily(
+    Font(R.font.inter_regular,  FontWeight.Normal),
+    Font(R.font.inter_medium,   FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold,     FontWeight.Bold)
+)
+
+private val Default: FontFamily = Inter
 
 val TvTypography = Typography(
     displayLarge   = TextStyle(fontFamily = Default, fontSize = 34.sp, fontWeight = FontWeight.Bold,     letterSpacing = (-0.5).sp),

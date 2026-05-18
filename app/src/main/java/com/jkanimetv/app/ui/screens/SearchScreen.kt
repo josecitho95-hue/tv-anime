@@ -52,8 +52,7 @@ fun SearchScreen(
         Text(
             text = "Buscar anime",
             color = TextPrimary,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.headlineLarge
         )
         Spacer(Modifier.height(16.dp))
 
@@ -74,7 +73,11 @@ fun SearchScreen(
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 if (query.isEmpty()) {
-                    Text("Escribe el nombre del anime…", color = TextSecondary, fontSize = 16.sp)
+                    Text(
+                        text = "Escribe el nombre del anime…",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
                 BasicTextField(
                     value = query,
@@ -100,7 +103,11 @@ fun SearchScreen(
                 shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
                 modifier = Modifier.height(48.dp)
             ) {
-                Text("Buscar", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Buscar",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
 
@@ -110,11 +117,19 @@ fun SearchScreen(
             state.isLoading -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = AccentRed)
             }
-            state.error != null -> Text(state.error!!, color = AccentRed, fontSize = 14.sp)
+            state.error != null -> Text(
+                text = state.error!!,
+                color = AccentRed,
+                style = MaterialTheme.typography.bodyMedium
+            )
             state.results.isEmpty() && state.query.isNotBlank() && !state.isLoading -> Box(
                 Modifier.fillMaxWidth(), contentAlignment = Alignment.Center
             ) {
-                Text("Sin resultados para \"${state.query}\"", color = TextSecondary)
+                Text(
+                    text = "Sin resultados para \"${state.query}\"",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
             state.results.isNotEmpty() -> LazyVerticalGrid(
                 columns = GridCells.Fixed(6),

@@ -95,7 +95,11 @@ fun BrowseScreen(
                 CircularProgressIndicator(color = AccentRed)
             }
             items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Sin resultados para este filtro", color = TextSecondary, fontSize = 14.sp)
+                Text(
+                    text = "Sin resultados para este filtro",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
             else -> {
                 val gridState = rememberLazyGridState()
@@ -153,8 +157,7 @@ private fun FilterRow(
         Text(
             text = "$label:",
             color = TextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.width(56.dp)
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -172,8 +175,8 @@ private fun FilterChip(value: String, label: String, selected: Boolean, onSelect
     var focused by remember { mutableStateOf(false) }
     val bg = when {
         selected -> AccentRed
-        focused -> Color(0xFF2A2A4A)
-        else -> Color(0xFF16162A)
+        focused -> CardBgHover
+        else -> CardBg
     }
     Button(
         onClick = { onSelect(value) },
@@ -189,6 +192,12 @@ private fun FilterChip(value: String, label: String, selected: Boolean, onSelect
         colors = ButtonDefaults.colors(containerColor = bg, focusedContainerColor = bg),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
     ) {
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+        Text(
+            text = label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+        )
     }
 }

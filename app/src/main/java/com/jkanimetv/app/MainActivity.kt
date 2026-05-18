@@ -75,17 +75,21 @@ fun AppNavigation() {
             Text(
                 text = "JKAnime TV",
                 color = AccentRed,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(end = 24.dp)
             )
             val selectedIdx = tabs.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0)
+            // Track which tab the D-pad is focused on so the pill follows
+            // the cursor instead of waiting for OK to confirm.
+            var focusedTabIndex by remember { mutableStateOf(selectedIdx) }
             TabRow(
                 selectedTabIndex = selectedIdx,
                 indicator = { tabPositions, doesHaveFocus ->
-                    if (selectedIdx in tabPositions.indices) {
+                    val indicatorIdx = (if (doesHaveFocus) focusedTabIndex else selectedIdx)
+                        .coerceIn(0, tabPositions.lastIndex.coerceAtLeast(0))
+                    if (indicatorIdx in tabPositions.indices) {
                         TabRowDefaults.PillIndicator(
-                            currentTabPosition = tabPositions[selectedIdx],
+                            currentTabPosition = tabPositions[indicatorIdx],
                             doesTabRowHaveFocus = doesHaveFocus,
                             activeColor = AccentRed,
                             inactiveColor = AccentRed.copy(alpha = 0.6f)
@@ -97,19 +101,26 @@ fun AppNavigation() {
                     val isSelected = idx == selectedIdx
                     Tab(
                         selected = isSelected,
-                        onFocus = { /* no-op: visual via TabRow indicator */ },
-                        onClick = {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                        // Focus = navigate: as soon as the D-pad lands on a tab,
+                        // jump to that screen. saveState/restoreState makes it
+                        // cheap because previously-visited tabs restore in ms.
+                        onFocus = {
+                            focusedTabIndex = idx
+                            if (currentRoute != route) {
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
-                        }
+                        },
+                        onClick = { /* navigation already happened on focus */ }
                     ) {
                         Text(
                             text = label,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            ),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }
@@ -204,7 +215,11 @@ fun AppNavigation() {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 CircularProgressIndicator(color = AccentRed)
                                 Spacer(Modifier.height(12.dp))
-                                Text("Cargando video...", color = Color.White)
+                                Text(
+                                    text = "Cargando video...",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
                             }
                         }
                     }
@@ -218,9 +233,9 @@ fun AppNavigation() {
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    videoUrlState.error ?: "Error desconocido",
+                                    text = videoUrlState.error ?: "Error desconocido",
                                     color = Color.White,
-                                    fontSize = 16.sp
+                                    style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(Modifier.height(12.dp))
                                 Button(onClick = { vm.clearVideoUrl() }) { Text("Cerrar") }

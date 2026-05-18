@@ -24,21 +24,21 @@ import androidx.tv.material3.*
 import coil.compose.AsyncImage
 import com.jkanimetv.app.data.Anime
 
-// Backgrounds — sutil jerarquía de profundidad
-val DarkBg          = Color(0xFF0A0A14)  // fondo principal (más profundo que antes)
-val SurfaceElevated = Color(0xFF14142A)  // topbar / paneles base
-val CardBg          = Color(0xFF1E1E36)  // tarjetas en reposo (más luz para contraste de foco)
-val CardBgHover     = Color(0xFF252548)  // tarjetas focused/hovered
+// Backgrounds — charcoal neutro (sin tinte azul/morado)
+val DarkBg          = Color(0xFF121214)  // fondo principal
+val SurfaceElevated = Color(0xFF1A1A1C)  // topbar / paneles base
+val CardBg          = Color(0xFF1F1F22)  // tarjetas en reposo
+val CardBgHover     = Color(0xFF2A2A2E)  // tarjetas focused/hovered
 
-// Accents — identidad roja conservada + complementos
+// Accents — identidad roja conservada
 val AccentRed       = Color(0xFFE94560)  // identidad principal
 val AccentRedSoft   = Color(0xFFFF6B85)  // glow / highlights
 val SuccessGreen    = Color(0xFF4CAF50)  // indicador "completado"
 
-// Texto — más contraste para TV
-val TextPrimary     = Color(0xFFF5F5FA)
-val TextSecondary   = Color(0xFFB0B0C0)
-val TextTertiary    = Color(0xFF7070A0)
+// Texto — neutro frío
+val TextPrimary     = Color(0xFFF5F5F7)
+val TextSecondary   = Color(0xFFB0B0B5)
+val TextTertiary    = Color(0xFF6E6E73)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -94,8 +94,7 @@ fun AnimeCard(
             Text(
                 text = anime.title,
                 color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.labelSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -118,8 +117,7 @@ fun AnimeRow(
         Text(
             text = title,
             color = titleColor,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp)
         )
         LazyRow(
@@ -151,10 +149,14 @@ fun ErrorScreen(message: String, onRetry: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = message, color = TextPrimary, fontSize = 16.sp)
+            Text(
+                text = message,
+                color = TextPrimary,
+                style = MaterialTheme.typography.bodyLarge
+            )
             Spacer(Modifier.height(16.dp))
             Button(onClick = onRetry) {
-                Text("Reintentar")
+                Text(text = "Reintentar", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

@@ -8,9 +8,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.tv.material3.MaterialTheme
 import com.jkanimetv.app.data.Anime
 import com.jkanimetv.app.viewmodel.MainViewModel
 
@@ -28,15 +27,18 @@ fun FavoritesScreen(
             .padding(32.dp)
     ) {
         Text(
-            "Favoritos",
+            text = "Favoritos",
             color = TextPrimary,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.headlineLarge,
             modifier = Modifier.padding(bottom = 16.dp)
         )
         if (favorites.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Aún no tienes favoritos", color = TextSecondary)
+                Text(
+                    text = "Aún no tienes favoritos",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         } else {
             LazyVerticalGrid(

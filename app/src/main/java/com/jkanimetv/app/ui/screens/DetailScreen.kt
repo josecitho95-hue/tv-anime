@@ -75,8 +75,13 @@ fun DetailScreen(
                             .clip(RoundedCornerShape(8.dp))
                     )
                     Spacer(Modifier.height(12.dp))
-                    Text(anime.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = anime.title,
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Spacer(Modifier.height(8.dp))
 
                     if (anime.genre.isNotBlank()) InfoChip(anime.genre)
@@ -89,19 +94,31 @@ fun DetailScreen(
                     Button(
                         onClick = { vm.toggleFavorite(anime) },
                         colors = ButtonDefaults.colors(
-                            containerColor = if (state.isFavorite) AccentRed else Color(0xFF2A2A4A),
+                            containerColor = if (state.isFavorite) AccentRed else CardBgHover,
                             focusedContainerColor = AccentRed
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (state.isFavorite) "♥ Favorito" else "♡ Añadir favorito", color = Color.White)
+                        Text(
+                            text = if (state.isFavorite) "♥ Favorito" else "♡ Añadir favorito",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge
+                        )
                     }
 
                     if (anime.synopsis.isNotBlank()) {
                         Spacer(Modifier.height(12.dp))
-                        Text("Sinopsis", color = AccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Sinopsis",
+                            color = AccentRed,
+                            style = MaterialTheme.typography.labelLarge
+                        )
                         Spacer(Modifier.height(4.dp))
-                        Text(anime.synopsis, color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp)
+                        Text(
+                            text = anime.synopsis,
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
 
@@ -112,16 +129,19 @@ fun DetailScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        "${state.episodes.size} Episodios",
+                        text = "${state.episodes.size} Episodios",
                         color = TextPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
 
                     if (state.episodes.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Sin episodios disponibles", color = TextSecondary)
+                            Text(
+                                text = "Sin episodios disponibles",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
                         }
                     } else {
                         LazyVerticalGrid(
@@ -152,10 +172,17 @@ fun EpisodeButton(episode: Episode, progress: WatchHistory?, onClick: () -> Unit
     var focused by remember { mutableStateOf(false) }
     val completed = progress != null && progress.durationMs > 0 &&
         progress.positionMs >= progress.durationMs * 0.95
-    val inProgress = !completed && progress != null && progress.positionMs > 30_000L
-    val progressFraction = if (inProgress && progress!!.durationMs > 0)
-        (progress.positionMs.toFloat() / progress.durationMs.toFloat()).coerceIn(0f, 1f)
-    else 0f
+    // Lower threshold (5s instead of 30s) so a quick visit still marks
+    // the episode as "started". Also handle the case where duration was
+    // unknown when saving — show a fixed 30% bar so the user still sees
+    // some visual marker.
+    val inProgress = !completed && progress != null && progress.positionMs > 5_000L
+    val progressFraction = when {
+        !inProgress -> 0f
+        progress!!.durationMs > 0 ->
+            (progress.positionMs.toFloat() / progress.durationMs.toFloat()).coerceIn(0.05f, 1f)
+        else -> 0.30f
+    }
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -189,8 +216,7 @@ fun EpisodeButton(episode: Episode, progress: WatchHistory?, onClick: () -> Unit
                 Text(
                     text = "${episode.number}",
                     color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleMedium
                 )
             }
             // Completed: corner check mark
@@ -230,9 +256,9 @@ fun InfoChip(text: String) {
     Box(
         modifier = Modifier
             .padding(vertical = 2.dp)
-            .background(Color(0xFF2A2A4A), RoundedCornerShape(12.dp))
+            .background(CardBgHover, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Text(text, color = TextSecondary, fontSize = 10.sp)
+        Text(text = text, color = TextSecondary, style = MaterialTheme.typography.labelSmall)
     }
 }

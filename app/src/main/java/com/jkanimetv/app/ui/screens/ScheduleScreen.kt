@@ -7,9 +7,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.tv.material3.MaterialTheme
 import com.jkanimetv.app.data.Anime
 import com.jkanimetv.app.viewmodel.MainViewModel
 import java.util.Calendar
@@ -59,8 +58,9 @@ fun ScheduleScreen(
                 if (state.days.isEmpty()) {
                     Spacer(Modifier.height(48.dp))
                     Text(
-                        "Sin datos de horario",
+                        text = "Sin datos de horario",
                         color = TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.padding(horizontal = 32.dp)
                     )
                 }

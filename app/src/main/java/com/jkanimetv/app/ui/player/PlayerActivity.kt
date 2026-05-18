@@ -251,9 +251,19 @@ fun PlayerScreen(
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(exoPlayer) {
+        // Snapshot current playback position into Room. Called on lifecycle pause
+        // and on dispose so we never lose progress to a missed 10s autosave tick.
+        fun snapshotProgress() {
+            val pos = exoPlayer.currentPosition
+            val dur = exoPlayer.duration.coerceAtLeast(0L)
+            if (pos > 0) vm.saveProgress(slug, title, cover, episode, pos, dur)
+        }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_PAUSE -> {
+                    snapshotProgress()
+                    exoPlayer.pause()
+                }
                 Lifecycle.Event.ON_RESUME -> if (!exoPlayer.isPlaying && resumeDecision !is ResumeDecision.Pending) exoPlayer.play()
                 else -> {}
             }
@@ -261,6 +271,7 @@ fun PlayerScreen(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            snapshotProgress()
             exoPlayer.release()
         }
     }
