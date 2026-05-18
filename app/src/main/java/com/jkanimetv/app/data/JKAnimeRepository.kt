@@ -441,7 +441,8 @@ class JKAnimeRepository {
             if (titleStart == -1 || titleStart > urlStart + 3000) { pos = urlEnd + 1; continue }
             val titleEnd = html.indexOf("</h5></div>", titleStart + titleMarker.length)
             if (titleEnd == -1) { pos = urlEnd + 1; continue }
-            val title = unescape(html.substring(titleStart + titleMarker.length, titleEnd).trim())
+            val rawTitle = html.substring(titleStart + titleMarker.length, titleEnd)
+            val title = unescape(rawTitle.replace(Regex("<[^>]+>"), "").trim())
 
             result.add(Anime(slug = animeUrl, title = title, coverUrl = imageUrl))
             pos = titleEnd + 1
@@ -553,7 +554,8 @@ class JKAnimeRepository {
             if (titleStart == -1 || titleStart > urlStart + 3000) { pos = urlEnd + 1; continue }
             val titleEnd = html.indexOf("</h5></div>", titleStart + titleMarker.length)
             if (titleEnd == -1) { pos = urlEnd + 1; continue }
-            val title = unescape(html.substring(titleStart + titleMarker.length, titleEnd).trim())
+            val rawTitle = html.substring(titleStart + titleMarker.length, titleEnd)
+            val title = unescape(rawTitle.replace(Regex("<[^>]+>"), "").trim())
 
             result.add(Anime(slug = animeUrl, title = title, coverUrl = imageUrl))
             pos = titleEnd + 1
@@ -676,7 +678,10 @@ class JKAnimeRepository {
             if (h5Idx == -1 || h5Idx > containerIdx + 2000) { pos = containerIdx + containerMarker.length; continue }
             val titleEnd = html.indexOf("</h5>", h5Idx + h5Marker.length)
             if (titleEnd == -1) { pos = containerIdx + containerMarker.length; continue }
-            val title = unescape(html.substring(h5Idx + h5Marker.length, titleEnd).trim())
+            // jkanime ahora envuelve el título en <a> dentro del <h5>; strip
+            // tags HTML para quedarnos sólo con el texto.
+            val rawTitle = html.substring(h5Idx + h5Marker.length, titleEnd)
+            val title = unescape(rawTitle.replace(Regex("<[^>]+>"), "").trim())
 
             if (title.isNotBlank()) result.add(Anime(slug = animeUrl, title = title, coverUrl = imageUrl))
             pos = containerIdx + containerMarker.length

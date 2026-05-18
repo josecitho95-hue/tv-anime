@@ -9,7 +9,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.delay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -69,25 +73,35 @@ fun AppNavigation() {
         }
     }
 
-    Row(
+    // After each navigation we claim focus on the content area so the sidebar
+    // doesn't auto-grab it (which would re-fire navigate-on-focus and undo the
+    // navigation the user just initiated, e.g. Browse → anime card → Home).
+    val contentFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(currentRoute) {
+        // Let the destination compose before requesting.
+        delay(60)
+        runCatching { contentFocusRequester.requestFocus() }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBg)
     ) {
-        Box(modifier = Modifier.width(sidebarWidth).fillMaxHeight()) {
-            Sidebar(
-                expanded = sidebarHasFocus,
-                currentRoute = currentRoute,
-                onSidebarFocusChange = { sidebarHasFocus = it },
-                onTabActivated = ::navigateTo
-            )
-        }
-
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.weight(1f),
-            enterTransition = {
+        // Content layer — reserves the always-visible 72 dp of sidebar on the left
+        // and never resizes when the sidebar expands (which overlays the content).
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 72.dp)
+                .focusRequester(contentFocusRequester)
+                .focusable()
+        ) {
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = {
                 slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) +
                     fadeIn(tween(250))
             },
@@ -199,6 +213,24 @@ fun AppNavigation() {
                     }
                 }
             }
+        }
+        }
+
+        // Sidebar overlay — drawn on top of the content. Collapsed it covers
+        // exactly the 72 dp the content reserved on its left; expanded it
+        // overlays the next 168 dp without resizing the content underneath.
+        Box(
+            modifier = Modifier
+                .width(sidebarWidth)
+                .fillMaxHeight()
+                .align(Alignment.TopStart)
+        ) {
+            Sidebar(
+                expanded = sidebarHasFocus,
+                currentRoute = currentRoute,
+                onSidebarFocusChange = { sidebarHasFocus = it },
+                onTabActivated = ::navigateTo
+            )
         }
     }
 }
