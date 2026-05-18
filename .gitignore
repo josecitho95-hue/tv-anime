@@ -1,0 +1,19 @@
+# Built-in Android Studio / Gradle ignores
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.jks
+*.keystore
+
+# Logs
+*.log
+
+# OS
+Thumbs.db

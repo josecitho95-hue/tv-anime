@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JKAnime TV</string>
+    <string name="home">Inicio</string>
+    <string name="search">Buscar</string>
+    <string name="browse">Explorar</string>
+    <string name="schedule">Horario</string>
+    <string name="favorites">Favoritos</string>
+    <string name="loading">Cargando…</string>
+    <string name="no_results">Sin resultados</string>
+    <string name="error_network">Error de conexión. Verifica tu internet.</string>
+    <string name="select_server">Seleccionar servidor</string>
+    <string name="watch">Ver episodio</string>
+    <string name="episodes">Episodios</string>
+    <string name="synopsis">Sinopsis</string>
+    <string name="genre">Género</string>
+    <string name="status">Estado</string>
+    <string name="type">Tipo</string>
+</resources>
