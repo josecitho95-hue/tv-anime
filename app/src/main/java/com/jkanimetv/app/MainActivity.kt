@@ -7,20 +7,23 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import kotlinx.coroutines.delay
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -28,7 +31,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.*
-import com.jkanimetv.app.ui.components.Sidebar
 import com.jkanimetv.app.ui.player.PlayerActivity
 import com.jkanimetv.app.ui.screens.*
 import com.jkanimetv.app.ui.theme.TvTypography
@@ -46,6 +48,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class SidebarTab(val route: String, val label: String, val icon: ImageVector)
+
+private val SidebarTabs = listOf(
+    SidebarTab("home",      "Inicio",    Icons.Filled.Home),
+    SidebarTab("schedule",  "Horario",   Icons.Filled.DateRange),
+    SidebarTab("browse",    "Explorar",  Icons.Filled.Explore),
+    SidebarTab("search",    "Buscar",    Icons.Filled.Search),
+    SidebarTab("favorites", "Favoritos", Icons.Filled.Favorite)
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun AppNavigation() {
@@ -53,15 +65,6 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route?.substringBefore('/')
-
-    // Sidebar expands (icons + labels) when any of its items has focus, and
-    // collapses (icons only) when focus moves to the content area.
-    var sidebarHasFocus by remember { mutableStateOf(true) }
-    val sidebarWidth by animateDpAsState(
-        targetValue = if (sidebarHasFocus) 240.dp else 72.dp,
-        animationSpec = tween(durationMillis = 220),
-        label = "sidebar-width"
-    )
 
     fun navigateTo(route: String) {
         if (currentRoute != route) {
@@ -73,35 +76,61 @@ fun AppNavigation() {
         }
     }
 
-    // After each navigation we claim focus on the content area so the sidebar
-    // doesn't auto-grab it (which would re-fire navigate-on-focus and undo the
-    // navigation the user just initiated, e.g. Browse → anime card → Home).
-    val contentFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(currentRoute) {
-        // Let the destination compose before requesting.
-        delay(60)
-        runCatching { contentFocusRequester.requestFocus() }
-    }
+    NavigationDrawer(
+        drawerContent = { drawerValue ->
+            val expanded = drawerValue == DrawerValue.Open
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .background(SurfaceElevated)
+                    .padding(vertical = 24.dp, horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Brand header — "JK" colapsado / "JK Anime TV" expandido.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .height(36.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (expanded) "JK Anime TV" else "JK",
+                        color = AccentRed,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(DarkBg)
+                SidebarTabs.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    NavigationDrawerItem(
+                        selected = selected,
+                        onClick = { navigateTo(tab.route) },
+                        leadingContent = {
+                            androidx.compose.material3.Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.label,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    ) {
+                        Text(
+                            text = tab.label,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        )
+                    }
+                }
+            }
+        }
     ) {
-        // Content layer — reserves the always-visible 72 dp of sidebar on the left
-        // and never resizes when the sidebar expands (which overlays the content).
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 72.dp)
-                .focusRequester(contentFocusRequester)
-                .focusable()
-        ) {
-            NavHost(
-                navController = navController,
-                startDestination = "home",
-                modifier = Modifier.fillMaxSize(),
-                enterTransition = {
+        NavHost(
+            navController = navController,
+            startDestination = "home",
+            modifier = Modifier.fillMaxSize().background(DarkBg),
+            enterTransition = {
                 slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) +
                     fadeIn(tween(250))
             },
@@ -213,24 +242,6 @@ fun AppNavigation() {
                     }
                 }
             }
-        }
-        }
-
-        // Sidebar overlay — drawn on top of the content. Collapsed it covers
-        // exactly the 72 dp the content reserved on its left; expanded it
-        // overlays the next 168 dp without resizing the content underneath.
-        Box(
-            modifier = Modifier
-                .width(sidebarWidth)
-                .fillMaxHeight()
-                .align(Alignment.TopStart)
-        ) {
-            Sidebar(
-                expanded = sidebarHasFocus,
-                currentRoute = currentRoute,
-                onSidebarFocusChange = { sidebarHasFocus = it },
-                onTabActivated = ::navigateTo
-            )
         }
     }
 }
