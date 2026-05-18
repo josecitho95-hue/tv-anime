@@ -32,6 +32,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.*
+import com.jkanimetv.app.ui.theme.TvTypography
 import com.jkanimetv.app.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
 
@@ -81,7 +82,7 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             @OptIn(ExperimentalTvMaterial3Api::class)
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = darkColorScheme(), typography = TvTypography) {
                 val vm: MainViewModel = viewModel()
                 PlayerScreen(
                     url = url,

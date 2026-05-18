@@ -11,6 +11,9 @@ interface WatchHistoryDao {
     @Query("SELECT * FROM watch_history WHERE key = :key")
     suspend fun get(key: String): WatchHistory?
 
+    @Query("SELECT * FROM watch_history WHERE animeSlug = :slug")
+    suspend fun getForAnime(slug: String): List<WatchHistory>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: WatchHistory)
 

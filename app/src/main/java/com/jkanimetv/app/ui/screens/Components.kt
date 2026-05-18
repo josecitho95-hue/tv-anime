@@ -24,11 +24,21 @@ import androidx.tv.material3.*
 import coil.compose.AsyncImage
 import com.jkanimetv.app.data.Anime
 
-val DarkBg = Color(0xFF0D0D1A)
-val CardBg = Color(0xFF1A1A2E)
-val AccentRed = Color(0xFFE94560)
-val TextPrimary = Color(0xFFE0E0E0)
-val TextSecondary = Color(0xFF9E9E9E)
+// Backgrounds — sutil jerarquía de profundidad
+val DarkBg          = Color(0xFF0A0A14)  // fondo principal (más profundo que antes)
+val SurfaceElevated = Color(0xFF14142A)  // topbar / paneles base
+val CardBg          = Color(0xFF1E1E36)  // tarjetas en reposo (más luz para contraste de foco)
+val CardBgHover     = Color(0xFF252548)  // tarjetas focused/hovered
+
+// Accents — identidad roja conservada + complementos
+val AccentRed       = Color(0xFFE94560)  // identidad principal
+val AccentRedSoft   = Color(0xFFFF6B85)  // glow / highlights
+val SuccessGreen    = Color(0xFF4CAF50)  // indicador "completado"
+
+// Texto — más contraste para TV
+val TextPrimary     = Color(0xFFF5F5FA)
+val TextSecondary   = Color(0xFFB0B0C0)
+val TextTertiary    = Color(0xFF7070A0)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

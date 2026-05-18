@@ -3,14 +3,13 @@ package com.jkanimetv.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -30,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.*
 import com.jkanimetv.app.ui.player.PlayerActivity
 import com.jkanimetv.app.ui.screens.*
+import com.jkanimetv.app.ui.theme.TvTypography
 import com.jkanimetv.app.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             @OptIn(ExperimentalTvMaterial3Api::class)
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = darkColorScheme(), typography = TvTypography) {
                 AppNavigation()
             }
         }
@@ -68,56 +68,51 @@ fun AppNavigation() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0A0A1A))
-                .padding(horizontal = 32.dp, vertical = 0.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .background(SurfaceElevated)
+                .padding(horizontal = 32.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "JKAnime TV",
                 color = AccentRed,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(end = 16.dp)
+                modifier = Modifier.padding(end = 24.dp)
             )
-            tabs.forEach { (route, label) ->
-                val selected = currentRoute == route
-                var focused by remember { mutableStateOf(false) }
-                val interactionSource = remember { MutableInteractionSource() }
-                val bg = when {
-                    selected -> AccentRed
-                    focused -> Color.White.copy(alpha = 0.10f)
-                    else -> Color.Transparent
+            val selectedIdx = tabs.indexOfFirst { it.first == currentRoute }.coerceAtLeast(0)
+            TabRow(
+                selectedTabIndex = selectedIdx,
+                indicator = { tabPositions, doesHaveFocus ->
+                    if (selectedIdx in tabPositions.indices) {
+                        TabRowDefaults.PillIndicator(
+                            currentTabPosition = tabPositions[selectedIdx],
+                            doesTabRowHaveFocus = doesHaveFocus,
+                            activeColor = AccentRed,
+                            inactiveColor = AccentRed.copy(alpha = 0.6f)
+                        )
+                    }
                 }
-                val borderWidth = when {
-                    selected && focused -> 1.5.dp
-                    focused -> 1.5.dp
-                    else -> 0.dp
-                }
-                val borderColor = if (selected) Color.White.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.45f)
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 2.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(bg)
-                        .border(borderWidth, borderColor, RoundedCornerShape(20.dp))
-                        .onFocusChanged { focused = it.isFocused || it.hasFocus }
-                        .focusable(interactionSource = interactionSource)
-                        .clickable {
+            ) {
+                tabs.forEachIndexed { idx, (route, label) ->
+                    val isSelected = idx == selectedIdx
+                    Tab(
+                        selected = isSelected,
+                        onFocus = { /* no-op: visual via TabRow indicator */ },
+                        onClick = {
                             navController.navigate(route) {
-                                popUpTo("home") { saveState = true }
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = label,
-                        color = if (selected || focused) Color.White else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }
@@ -125,7 +120,23 @@ fun AppNavigation() {
         NavHost(
             navController = navController,
             startDestination = "home",
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            enterTransition = {
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) +
+                    fadeIn(tween(250))
+            },
+            exitTransition = {
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300)) +
+                    fadeOut(tween(250))
+            },
+            popEnterTransition = {
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300)) +
+                    fadeIn(tween(250))
+            },
+            popExitTransition = {
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300)) +
+                    fadeOut(tween(250))
+            }
         ) {
             composable("home") {
                 HomeScreen(vm = vm, onAnimeClick = { anime ->

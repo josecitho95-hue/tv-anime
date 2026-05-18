@@ -78,6 +78,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _history = MutableStateFlow<List<WatchHistory>>(emptyList())
     val history: StateFlow<List<WatchHistory>> = _history
 
+    // Map episodeNumber -> WatchHistory for the currently opened anime detail.
+    // Powers the watched-indicator overlay on EpisodeButton.
+    private val _episodeProgress = MutableStateFlow<Map<Int, WatchHistory>>(emptyMap())
+    val episodeProgress: StateFlow<Map<Int, WatchHistory>> = _episodeProgress
+
     private val _favorites = MutableStateFlow<List<Favorite>>(emptyList())
     val favorites: StateFlow<List<Favorite>> = _favorites
 
@@ -157,6 +162,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadDetail(animeUrl: String) {
         detailJob?.cancel()
+        _episodeProgress.value = emptyMap()
         detailJob = viewModelScope.launch {
             _detail.value = DetailUiState(isLoading = true)
             runCatching {
@@ -172,9 +178,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     isFavorite = isFav,
                     error = warning
                 )
+                refreshEpisodeProgress(animeUrl)
             }.onFailure {
                 _detail.value = DetailUiState(error = it.message ?: "Error cargando anime")
             }
+        }
+    }
+
+    // Refresh the per-episode progress map for the given anime. Called on
+    // detail load and whenever we re-enter the detail screen (e.g. after
+    // returning from the player) so the watched indicators stay in sync.
+    fun refreshEpisodeProgress(animeUrl: String) {
+        viewModelScope.launch {
+            _episodeProgress.value = historyDao.getForAnime(animeUrl).associateBy { it.episodeNumber }
         }
     }
 
@@ -231,10 +247,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveProgress(slug: String, title: String, cover: String, episode: Int, posMs: Long, durMs: Long) {
         viewModelScope.launch {
-            historyDao.upsert(WatchHistory(
+            val item = WatchHistory(
                 key = "${slug}_$episode", animeSlug = slug, animeTitle = title, animeCover = cover,
                 episodeNumber = episode, positionMs = posMs, durationMs = durMs
-            ))
+            )
+            historyDao.upsert(item)
+            _episodeProgress.value = _episodeProgress.value + (episode to item)
             loadHistory()
         }
     }

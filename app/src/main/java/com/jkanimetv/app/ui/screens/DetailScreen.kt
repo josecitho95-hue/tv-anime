@@ -26,6 +26,7 @@ import androidx.tv.material3.*
 import coil.compose.AsyncImage
 import com.jkanimetv.app.data.Anime
 import com.jkanimetv.app.data.Episode
+import com.jkanimetv.app.data.WatchHistory
 import com.jkanimetv.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -37,8 +38,13 @@ fun DetailScreen(
     onBack: () -> Unit
 ) {
     val state by vm.detail.collectAsState()
+    val progress by vm.episodeProgress.collectAsState()
 
     LaunchedEffect(slug) { vm.loadDetail(slug) }
+    // Re-sync watched indicators when returning from the player.
+    androidx.compose.runtime.LaunchedEffect(slug, state.episodes.size) {
+        if (slug.isNotBlank() && state.episodes.isNotEmpty()) vm.refreshEpisodeProgress(slug)
+    }
 
     when {
         state.isLoading -> LoadingScreen()
@@ -125,9 +131,11 @@ fun DetailScreen(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(state.episodes.size) { idx ->
+                                val ep = state.episodes[idx]
                                 EpisodeButton(
-                                    episode = state.episodes[idx],
-                                    onClick = { onEpisodeClick(slug, state.episodes[idx].number) }
+                                    episode = ep,
+                                    progress = progress[ep.number],
+                                    onClick = { onEpisodeClick(slug, ep.number) }
                                 )
                             }
                         }
@@ -140,8 +148,14 @@ fun DetailScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun EpisodeButton(episode: Episode, onClick: () -> Unit) {
+fun EpisodeButton(episode: Episode, progress: WatchHistory?, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    val completed = progress != null && progress.durationMs > 0 &&
+        progress.positionMs >= progress.durationMs * 0.95
+    val inProgress = !completed && progress != null && progress.positionMs > 30_000L
+    val progressFraction = if (inProgress && progress!!.durationMs > 0)
+        (progress.positionMs.toFloat() / progress.durationMs.toFloat()).coerceIn(0f, 1f)
+    else 0f
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -149,24 +163,64 @@ fun EpisodeButton(episode: Episode, onClick: () -> Unit) {
             .shadow(
                 elevation = if (focused) 10.dp else 0.dp,
                 shape = RoundedCornerShape(6.dp),
-                ambientColor = AccentRed,
-                spotColor = AccentRed
+                ambientColor = AccentRedSoft,
+                spotColor = AccentRedSoft
             )
             .onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(RoundedCornerShape(6.dp)),
         colors = CardDefaults.colors(
-            containerColor = if (focused) AccentRed else CardBg,
+            containerColor = when {
+                focused -> AccentRed
+                completed -> Color(0xFF1F3A24)  // verde muy oscuro de fondo cuando completado
+                else -> CardBg
+            },
             focusedContainerColor = AccentRed
         ),
+        border = if (completed && !focused) {
+            CardDefaults.border(border = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, SuccessGreen),
+                shape = RoundedCornerShape(6.dp)
+            ))
+        } else CardDefaults.border(),
         scale = CardDefaults.scale(focusedScale = 1.08f),
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().padding(4.dp)) {
-            Text(
-                text = "${episode.number}",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                Text(
+                    text = "${episode.number}",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            // Completed: corner check mark
+            if (completed) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(14.dp)
+                        .background(SuccessGreen, RoundedCornerShape(50))
+                ) {
+                    Text(
+                        text = "✓",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+            }
+            // In progress: bottom progress bar
+            if (inProgress) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(progressFraction)
+                        .height(3.dp)
+                        .background(AccentRedSoft)
+                )
+            }
         }
     }
 }
