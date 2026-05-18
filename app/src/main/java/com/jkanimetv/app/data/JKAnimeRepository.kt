@@ -563,18 +563,87 @@ class JKAnimeRepository {
 
     // ── DIRECTORY ────────────────────────────────────────────────────────────
 
+    // Directory listing. jkanime renders the cards client-side from a JSON blob
+    // embedded as `var animes = {...}` in /directorio/1/. The path segment /1/ is
+    // a constant listing id (NOT the page) — pagination is driven by ?p=N.
     suspend fun getDirectory(page: Int = 1, genre: String = "", type: String = "", status: String = ""): List<Anime> = runCatching {
-        // jkanime uses path-based pagination + query params for filters
-        val url = buildString {
-            append("$BASE/directorio/$page/")
-            val params = mutableListOf<String>()
-            if (genre.isNotBlank()) params.add("genero=$genre")
-            if (type.isNotBlank()) params.add("tipo=$type")
-            if (status.isNotBlank()) params.add("estado=$status")
-            if (params.isNotEmpty()) append("?").append(params.joinToString("&"))
-        }
-        parseAnimeItemList(get(url))
+        val params = mutableListOf("p=$page")
+        if (genre.isNotBlank())  params.add("genero=$genre")
+        if (type.isNotBlank())   params.add("tipo=$type")
+        if (status.isNotBlank()) params.add("estado=$status")
+        val url = "$BASE/directorio/1/?" + params.joinToString("&")
+        parseDirectoryJson(get(url))
+    }.onFailure {
+        Log.e("JKAnimeRepo", "getDirectory failed", it)
     }.getOrElse { emptyList() }
+
+    private fun parseDirectoryJson(html: String): List<Anime> {
+        if (html.isEmpty()) return emptyList()
+        val marker = "var animes = "
+        val start = html.indexOf(marker)
+        if (start == -1) {
+            Log.w("JKAnimeRepo", "parseDirectoryJson: 'var animes =' missing in ${html.length}-byte response; head=${html.take(200)}")
+            return emptyList()
+        }
+        val jsonStart = start + marker.length
+        val jsonEnd = findMatchingBrace(html, jsonStart)
+        if (jsonEnd == -1) {
+            Log.w("JKAnimeRepo", "parseDirectoryJson: unbalanced JSON block at $jsonStart")
+            return emptyList()
+        }
+        val json = html.substring(jsonStart, jsonEnd + 1)
+        val root = org.json.JSONObject(json)
+        val arr = root.optJSONArray("data") ?: return emptyList()
+        val out = ArrayList<Anime>(arr.length())
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val rawUrl = obj.optString("url")
+            if (rawUrl.isNullOrBlank()) continue
+            out.add(
+                Anime(
+                    slug = if (rawUrl.endsWith("/")) rawUrl else "$rawUrl/",
+                    title = unescape(obj.optString("title")),
+                    coverUrl = obj.optString("image"),
+                    synopsis = unescape(obj.optString("synopsis")).take(300),
+                    genre = obj.optString("tipo"),
+                    status = obj.optString("estado"),
+                    type = obj.optString("type")
+                )
+            )
+        }
+        return out
+    }
+
+    // Walks forward from a position pointing AT the opening '{' (or just before
+    // it) and returns the index of the matching closing '}', respecting JSON
+    // string escapes so braces inside synopses don't throw off the count.
+    // Returns -1 if no opening brace is found or the structure is unbalanced.
+    private fun findMatchingBrace(s: String, from: Int): Int {
+        var i = from
+        while (i < s.length && s[i] != '{') i++
+        if (i >= s.length) return -1
+        var depth = 0
+        var inString = false
+        var escape = false
+        while (i < s.length) {
+            val c = s[i]
+            if (inString) {
+                when {
+                    escape -> escape = false
+                    c == '\\' -> escape = true
+                    c == '"' -> inString = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> { depth--; if (depth == 0) return i }
+                }
+            }
+            i++
+        }
+        return -1
+    }
 
     // Shared parser for listing pages that use the jkanime `anime__item` card layout
     // (search results, directory). Matches NX-style markers.

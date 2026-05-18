@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -145,12 +146,13 @@ fun EpisodeButton(episode: Episode, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .aspectRatio(1f)
-            .onFocusChanged { focused = it.isFocused || it.hasFocus }
-            .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (focused) AccentRed else Color.Transparent,
-                shape = RoundedCornerShape(6.dp)
-            ),
+            .shadow(
+                elevation = if (focused) 10.dp else 0.dp,
+                shape = RoundedCornerShape(6.dp),
+                ambientColor = AccentRed,
+                spotColor = AccentRed
+            )
+            .onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(RoundedCornerShape(6.dp)),
         colors = CardDefaults.colors(
             containerColor = if (focused) AccentRed else CardBg,

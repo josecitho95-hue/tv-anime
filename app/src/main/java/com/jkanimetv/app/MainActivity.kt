@@ -4,9 +4,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -78,11 +82,27 @@ fun AppNavigation() {
             )
             tabs.forEach { (route, label) ->
                 val selected = currentRoute == route
+                var focused by remember { mutableStateOf(false) }
+                val interactionSource = remember { MutableInteractionSource() }
+                val bg = when {
+                    selected -> AccentRed
+                    focused -> Color.White.copy(alpha = 0.10f)
+                    else -> Color.Transparent
+                }
+                val borderWidth = when {
+                    selected && focused -> 1.5.dp
+                    focused -> 1.5.dp
+                    else -> 0.dp
+                }
+                val borderColor = if (selected) Color.White.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.45f)
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 2.dp, vertical = 6.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (selected) AccentRed else Color.Transparent)
+                        .background(bg)
+                        .border(borderWidth, borderColor, RoundedCornerShape(20.dp))
+                        .onFocusChanged { focused = it.isFocused || it.hasFocus }
+                        .focusable(interactionSource = interactionSource)
                         .clickable {
                             navController.navigate(route) {
                                 popUpTo("home") { saveState = true }
@@ -94,7 +114,7 @@ fun AppNavigation() {
                 ) {
                     Text(
                         text = label,
-                        color = if (selected) Color.White else TextSecondary,
+                        color = if (selected || focused) Color.White else TextSecondary,
                         fontSize = 13.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                     )

@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -45,15 +46,21 @@ fun AnimeCard(
         modifier = modifier
             .width(width.dp)
             .height(height.dp)
+            .shadow(
+                elevation = if (focused) 12.dp else 0.dp,
+                shape = RoundedCornerShape(8.dp),
+                ambientColor = Color.Black,
+                spotColor = Color.Black
+            )
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .border(
                 width = if (focused) 2.dp else 0.dp,
-                color = if (focused) AccentRed else Color.Transparent,
+                color = if (focused) Color.White.copy(alpha = 0.55f) else Color.Transparent,
                 shape = RoundedCornerShape(8.dp)
             ),
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
         colors = CardDefaults.colors(containerColor = CardBg),
-        scale = CardDefaults.scale(focusedScale = 1.05f),
+        scale = CardDefaults.scale(focusedScale = 1.06f),
     ) {
         Box {
             AsyncImage(
@@ -62,14 +69,15 @@ fun AnimeCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+            // Always-on gradient so titles stay legible; intensifies when focused.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(if (focused) 80.dp else 60.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color(0xCC000000))
+                            colors = listOf(Color.Transparent, Color(if (focused) 0xE6000000 else 0xCC000000))
                         )
                     )
             )

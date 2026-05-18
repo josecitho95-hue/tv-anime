@@ -22,13 +22,15 @@ import androidx.tv.material3.*
 import com.jkanimetv.app.data.Anime
 import com.jkanimetv.app.viewmodel.MainViewModel
 
+// jkanime expects the English-capitalized values from the JSON `type` field;
+// lowercase Spanish values get silently ignored by the directory endpoint.
 private val TYPES = listOf(
     "" to "Todos",
-    "tv" to "TV",
-    "ova" to "OVA",
-    "pelicula" to "Película",
-    "especial" to "Especial",
-    "ona" to "ONA"
+    "TV" to "TV",
+    "OVA" to "OVA",
+    "Movie" to "Película",
+    "Special" to "Especial",
+    "ONA" to "ONA"
 )
 
 private val STATUSES = listOf(
@@ -180,7 +182,7 @@ private fun FilterChip(value: String, label: String, selected: Boolean, onSelect
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .border(
                 width = if (focused && !selected) 1.dp else 0.dp,
-                color = AccentRed,
+                color = Color.White.copy(alpha = 0.55f),
                 shape = RoundedCornerShape(14.dp)
             ),
         shape = ButtonDefaults.shape(RoundedCornerShape(14.dp)),
