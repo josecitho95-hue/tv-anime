@@ -1,8 +1,13 @@
 package com.jkanimetv.app.ui.player
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.util.Rational
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -27,14 +32,23 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.*
+import com.jkanimetv.app.data.Settings
 import com.jkanimetv.app.ui.theme.TvTypography
 import com.jkanimetv.app.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class PlayerActivity : ComponentActivity() {
 
@@ -42,9 +56,11 @@ class PlayerActivity : ComponentActivity() {
     // dispatchKeyEvent can drive the player without going through Compose focus.
     private var exoPlayerRef: ExoPlayer? = null
     private var playerViewRef: PlayerView? = null
+    private var openMenuRef: (() -> Unit)? = null
     private var backPressedTime = 0L
 
     companion object {
+        private const val TAG = "PlayerActivity"
         const val EXTRA_URL = "url"
         const val EXTRA_IS_HLS = "is_hls"
         const val EXTRA_TITLE = "title"
@@ -95,6 +111,7 @@ class PlayerActivity : ComponentActivity() {
                         exoPlayerRef = exo
                         playerViewRef = pv
                     },
+                    onMenuReady = { openMenuRef = it },
                     onExit = { finish() }
                 )
             }
@@ -137,6 +154,20 @@ class PlayerActivity : ComponentActivity() {
                     }
                     return true
                 }
+                KeyEvent.KEYCODE_MENU,
+                KeyEvent.KEYCODE_GUIDE,
+                KeyEvent.KEYCODE_TV_INPUT,
+                KeyEvent.KEYCODE_INFO -> {
+                    openMenuRef?.invoke()
+                    return true
+                }
+                KeyEvent.KEYCODE_CAPTIONS -> {
+                    // Quick toggle: cycle through enabled/disabled subtitles
+                    // without opening the menu. Falls back to opening the menu
+                    // if no text tracks are available.
+                    openMenuRef?.invoke()
+                    return true
+                }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> {
                     player?.let {
                         it.seekTo(maxOf(it.currentPosition - 10_000L, 0L))
@@ -165,7 +196,91 @@ class PlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         exoPlayerRef = null
         playerViewRef = null
+        openMenuRef = null
         super.onDestroy()
+    }
+
+    // B3: Picture-in-Picture. Two paths:
+    //  - API 31+ (Android 12+): we register PictureInPictureParams with
+    //    autoEnter=true. The system enters PiP automatically when the
+    //    activity goes to background — this is the only path that works on
+    //    Android TV, because Android TV does NOT call onUserLeaveHint on
+    //    HOME (HOME is treated as "send to back", not "user leaving").
+    //  - API 26–30: we fall back to enterPictureInPictureMode() inside
+    //    onUserLeaveHint, which works on phones/tablets.
+    // No-op when the device doesn't advertise the PiP system feature.
+    fun refreshPipParams() = updatePipParams()
+
+    // Explicit user-initiated PiP entry. Used by the player menu's "Picture-in-
+    // Picture" item — works on any device that advertises the PiP feature,
+    // regardless of whether autoEnter / onUserLeaveHint trigger correctly.
+    // Returns true if PiP was successfully requested.
+    fun enterPipNow(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            Log.d(TAG, "enterPipNow: device has no PiP feature")
+            return false
+        }
+        val player = exoPlayerRef ?: return false
+        val w = player.videoSize.width.takeIf { it > 0 } ?: 16
+        val h = player.videoSize.height.takeIf { it > 0 } ?: 9
+        return runCatching {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(w, h))
+                    .build()
+            )
+        }.onFailure { Log.w(TAG, "enterPictureInPictureMode failed", it) }
+         .getOrDefault(false)
+    }
+
+    fun isPipSupported(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    private fun updatePipParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            Log.d(TAG, "updatePipParams: device has no PiP feature")
+            return
+        }
+        val player = exoPlayerRef ?: return
+        val w = player.videoSize.width.takeIf { it > 0 } ?: 16
+        val h = player.videoSize.height.takeIf { it > 0 } ?: 9
+        runCatching {
+            val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(w, h))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(true)
+            }
+            setPictureInPictureParams(builder.build())
+        }.onFailure { Log.w(TAG, "setPictureInPictureParams failed", it) }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Android 12+ handles this via autoEnter — don't double-trigger.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
+        val player = exoPlayerRef ?: return
+        if (!player.isPlaying) return
+        runCatching {
+            val w = player.videoSize.width.takeIf { it > 0 } ?: 16
+            val h = player.videoSize.height.takeIf { it > 0 } ?: 9
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(w, h))
+                    .build()
+            )
+        }.onFailure { Log.w(TAG, "enterPictureInPictureMode failed", it) }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPipMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPipMode, newConfig)
+        Log.d(TAG, "onPictureInPictureModeChanged: isInPipMode=$isInPipMode")
+        // Hide the controller in PiP — its buttons are too small to be useful
+        // and conflict with the system's PiP gesture overlay.
+        playerViewRef?.useController = !isInPipMode
     }
 }
 
@@ -173,6 +288,22 @@ private sealed class ResumeDecision {
     data class Pending(val savedMs: Long) : ResumeDecision()
     data class Resume(val positionMs: Long) : ResumeDecision()
     object FromStart : ResumeDecision()
+}
+
+private sealed class MenuLevel {
+    object Hidden : MenuLevel()
+    object Main : MenuLevel()
+    object Subtitles : MenuLevel()
+    object Speed : MenuLevel()
+    object Quality : MenuLevel()
+}
+
+// Iterates renderer indices of TEXT type. Used to enable/disable subtitles —
+// DefaultTrackSelector requires renderer indices, not track types.
+private inline fun forEachTextRenderer(player: ExoPlayer, block: (Int) -> Unit) {
+    for (i in 0 until player.rendererCount) {
+        if (player.getRendererType(i) == C.TRACK_TYPE_TEXT) block(i)
+    }
 }
 
 private fun formatTime(ms: Long): String {
@@ -193,21 +324,83 @@ fun PlayerScreen(
     cover: String,
     vm: MainViewModel,
     onPlayerReady: (ExoPlayer, PlayerView) -> Unit,
+    onMenuReady: (() -> Unit) -> Unit,
     onExit: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var resumeDecision by remember { mutableStateOf<ResumeDecision?>(null) }
     var controlsVisible by remember { mutableStateOf(false) }
+    var menuLevel by remember { mutableStateOf<MenuLevel>(MenuLevel.Hidden) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        onMenuReady { menuLevel = MenuLevel.Main }
+    }
+
+    val settings = remember { Settings(context) }
+    val trackSelector = remember { DefaultTrackSelector(context) }
+    var currentTracks by remember { mutableStateOf<Tracks?>(null) }
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            addListener(object : Player.Listener {
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    errorMsg = "Error: ${error.message}"
-                }
-            })
-        }
+        // Route all media HTTP through the repo's OkHttp client so the player
+        // benefits from the same lenient trust manager (OCSP/revocation skip)
+        // used for scraping. The default DefaultHttpDataSource (over
+        // HttpsURLConnection) cannot handshake with Cloudflare on some Android
+        // TVs because OCSP responses come back with stale validity intervals.
+        // Browser-ish User-Agent is required: jkdesa/jkplayer CDN rejects the
+        // default OkHttp UA.
+        val httpFactory = OkHttpDataSource.Factory(vm.repository().httpClient())
+            .setUserAgent(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+            )
+        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(httpFactory)
+        val activity = context as? PlayerActivity
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setTrackSelector(trackSelector)
+            .build()
+            .apply {
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        errorMsg = "Error: ${error.message}"
+                    }
+                    override fun onTracksChanged(tracks: Tracks) {
+                        currentTracks = tracks
+                    }
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        // B3: refresh PiP params with the real aspect ratio as
+                        // soon as the first frame's dimensions are known. On
+                        // API 31+ this also flips on autoEnter so the system
+                        // can take us into PiP when the activity backgrounds.
+                        activity?.refreshPipParams()
+                    }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying) activity?.refreshPipParams()
+                    }
+                })
+            }
+    }
+
+    // B1+B2: apply persisted preferences before prepare(). Defaults come from
+    // Settings.Defaults so a fresh install still gets sane behaviour.
+    LaunchedEffect(exoPlayer) {
+        val subLang = settings.subtitleLang.first()
+        val speed = settings.playbackSpeed.first()
+        val maxHeight = settings.maxVideoHeight.first()
+        trackSelector.parameters = trackSelector.buildUponParameters().apply {
+            // Subtitles: "off" disables every text renderer; otherwise leave
+            // them enabled and let the preferred language drive selection.
+            val disable = subLang == "off"
+            forEachTextRenderer(exoPlayer) { idx -> setRendererDisabled(idx, disable) }
+            setPreferredTextLanguage(if (disable) null else subLang)
+            // Quality: 0 = Auto (no cap). Otherwise cap by max height.
+            if (maxHeight > 0) setMaxVideoSize(Int.MAX_VALUE, maxHeight)
+            else clearVideoSizeConstraints()
+        }.build()
+        exoPlayer.playbackParameters = PlaybackParameters(speed)
     }
 
     // Decide whether to show the resume dialog before we touch the player.
@@ -258,11 +451,16 @@ fun PlayerScreen(
             val dur = exoPlayer.duration.coerceAtLeast(0L)
             if (pos > 0) vm.saveProgress(slug, title, cover, episode, pos, dur)
         }
+        val activity = context as? PlayerActivity
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
                     snapshotProgress()
-                    exoPlayer.pause()
+                    // Entering PiP also fires ON_PAUSE (the activity is only
+                    // partially visible). Don't pause playback in that case —
+                    // PiP is precisely meant to keep the video running while
+                    // the user does something else.
+                    if (activity?.isInPictureInPictureMode != true) exoPlayer.pause()
                 }
                 Lifecycle.Event.ON_RESUME -> if (!exoPlayer.isPlaying && resumeDecision !is ResumeDecision.Pending) exoPlayer.play()
                 else -> {}
@@ -357,6 +555,19 @@ fun PlayerScreen(
             )
         }
 
+        if (menuLevel != MenuLevel.Hidden) {
+            PlayerMenu(
+                level = menuLevel,
+                tracks = currentTracks,
+                player = exoPlayer,
+                settings = settings,
+                trackSelector = trackSelector,
+                onClose = { menuLevel = MenuLevel.Hidden },
+                onLevel = { menuLevel = it },
+                scope = scope
+            )
+        }
+
         errorMsg?.let { msg ->
             Box(
                 modifier = Modifier.fillMaxSize().background(Color(0xCC000000)),
@@ -372,4 +583,151 @@ fun PlayerScreen(
             }
         }
     }
+}
+
+// PlayerMenu — single AlertDialog whose content swaps based on `level`. Driven
+// by the player's MENU key (or CAPTIONS / INFO / GUIDE). Persists every choice
+// to DataStore so it sticks across episodes; also applies it live.
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PlayerMenu(
+    level: MenuLevel,
+    tracks: Tracks?,
+    player: ExoPlayer,
+    settings: Settings,
+    trackSelector: DefaultTrackSelector,
+    onClose: () -> Unit,
+    onLevel: (MenuLevel) -> Unit,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    val activity = androidx.compose.ui.platform.LocalContext.current as? PlayerActivity
+    val pipSupported = activity?.isPipSupported() == true
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            androidx.compose.material3.Text(
+                when (level) {
+                    MenuLevel.Subtitles -> "Subtítulos"
+                    MenuLevel.Speed -> "Velocidad"
+                    MenuLevel.Quality -> "Calidad"
+                    else -> "Reproductor"
+                }
+            )
+        },
+        text = {
+            when (level) {
+                MenuLevel.Main -> Column {
+                    MenuRow("Subtítulos") { onLevel(MenuLevel.Subtitles) }
+                    MenuRow("Velocidad (${"%.2f".format(player.playbackParameters.speed)}×)") {
+                        onLevel(MenuLevel.Speed)
+                    }
+                    MenuRow("Calidad") { onLevel(MenuLevel.Quality) }
+                    if (pipSupported) {
+                        MenuRow("◰ Picture-in-Picture") {
+                            activity?.enterPipNow()
+                            onClose()
+                        }
+                    }
+                }
+                MenuLevel.Subtitles -> Column {
+                    MenuRow("Desactivados") {
+                        scope.launch {
+                            settings.setSubtitleLang("off")
+                            trackSelector.parameters = trackSelector.buildUponParameters().apply {
+                                forEachTextRenderer(player) { idx -> setRendererDisabled(idx, true) }
+                                setPreferredTextLanguage(null)
+                            }.build()
+                            onClose()
+                        }
+                    }
+                    MenuRow("Español") {
+                        applySubLang(player, trackSelector, "es")
+                        scope.launch { settings.setSubtitleLang("es"); onClose() }
+                    }
+                    MenuRow("Inglés") {
+                        applySubLang(player, trackSelector, "en")
+                        scope.launch { settings.setSubtitleLang("en"); onClose() }
+                    }
+                }
+                MenuLevel.Speed -> Column {
+                    listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { rate ->
+                        MenuRow("${"%.2f".format(rate)}×") {
+                            player.playbackParameters = PlaybackParameters(rate)
+                            scope.launch { settings.setPlaybackSpeed(rate); onClose() }
+                        }
+                    }
+                }
+                MenuLevel.Quality -> Column {
+                    val heights = videoHeights(tracks)
+                    MenuRow("Auto") {
+                        trackSelector.parameters = trackSelector.buildUponParameters()
+                            .clearVideoSizeConstraints()
+                            .build()
+                        scope.launch { settings.setMaxVideoHeight(0); onClose() }
+                    }
+                    if (heights.isEmpty()) {
+                        androidx.compose.material3.Text(
+                            "Sin pistas disponibles aún",
+                            color = Color(0xAAFFFFFF),
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else heights.forEach { h ->
+                        MenuRow("${h}p") {
+                            trackSelector.parameters = trackSelector.buildUponParameters()
+                                .setMaxVideoSize(Int.MAX_VALUE, h)
+                                .build()
+                            scope.launch { settings.setMaxVideoHeight(h); onClose() }
+                        }
+                    }
+                }
+                else -> {}
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) {
+                androidx.compose.material3.Text("Cerrar")
+            }
+        },
+        dismissButton = if (level != MenuLevel.Main) {
+            { TextButton(onClick = { onLevel(MenuLevel.Main) }) {
+                androidx.compose.material3.Text("Atrás")
+            } }
+        } else null
+    )
+}
+
+@Composable
+private fun MenuRow(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        androidx.compose.material3.Text(label, color = Color.White)
+    }
+}
+
+// Distinct video heights present in the current Tracks, sorted descending.
+private fun videoHeights(tracks: Tracks?): List<Int> {
+    if (tracks == null) return emptyList()
+    val out = sortedSetOf<Int>(compareByDescending { it })
+    tracks.groups.forEach { group ->
+        if (group.type != C.TRACK_TYPE_VIDEO) return@forEach
+        for (i in 0 until group.length) {
+            val h = group.getTrackFormat(i).height
+            if (h > 0) out.add(h)
+        }
+    }
+    return out.toList()
+}
+
+private fun applySubLang(
+    player: ExoPlayer,
+    trackSelector: DefaultTrackSelector,
+    lang: String
+) {
+    trackSelector.parameters = trackSelector.buildUponParameters().apply {
+        forEachTextRenderer(player) { idx -> setRendererDisabled(idx, false) }
+        setPreferredTextLanguage(lang)
+    }.build()
 }
