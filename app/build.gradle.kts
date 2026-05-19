@@ -13,8 +13,8 @@ android {
         applicationId = "com.jkanimetv.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0"
+        versionCode = 20
+        versionName = "2.0"
     }
 
     buildTypes {
@@ -42,6 +42,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     lint {
@@ -68,6 +69,7 @@ dependencies {
     implementation(libs.androidx.tv.material)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.okhttp)
     implementation(libs.jsoup)
@@ -77,6 +79,8 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.gson)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
     ksp(libs.androidx.room.compiler)
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -1,11 +1,20 @@
 package com.jkanimetv.app.data
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.Cache
+import okhttp3.CacheControl
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import java.io.File
 import java.security.KeyStore
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
@@ -13,8 +22,54 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
+import kotlin.random.Random
 
-class JKAnimeRepository {
+class JKAnimeRepository(private val context: Context) {
+
+    // Cache "buckets" — the get() helper attaches an X-Cache-Bucket header that
+    // the network interceptor reads to rewrite Cache-Control. This avoids
+    // hard-coding URL patterns in the interceptor and keeps TTLs next to the
+    // endpoints that produce them.
+    private object Bucket {
+        const val HEADER = "X-Cache-Bucket"
+        const val NONE = "none"
+        const val HOME = "home"          // 30 min
+        const val DIRECTORY = "directory" // 15 min
+        const val DETAIL = "detail"      // 6 h
+    }
+
+    private fun ttlSecondsFor(bucket: String?): Int = when (bucket) {
+        Bucket.HOME -> 1_800
+        Bucket.DIRECTORY -> 900
+        Bucket.DETAIL -> 21_600
+        else -> 0
+    }
+
+    private val httpCache = Cache(
+        directory = File(context.cacheDir, "http_cache"),
+        maxSize = 20L * 1024 * 1024  // 20 MB
+    )
+
+    fun clearHttpCache() {
+        runCatching { httpCache.evictAll() }
+            .onFailure { Log.w("JKAnimeRepo", "clearHttpCache failed", it) }
+    }
+
+    fun httpCacheSizeBytes(): Long = runCatching { httpCache.size() }.getOrDefault(0L)
+
+    // Exposed for ExoPlayer's OkHttpDataSource so the player handshakes with the
+    // same lenient trust manager as the scraper. Without this, ExoPlayer uses
+    // DefaultHttpDataSource (HttpsURLConnection) which fails on Cloudflare's
+    // OCSP responses with "validity interval is out-of-date".
+    fun httpClient(): OkHttpClient = client
+
+    private fun hasNetwork(): Boolean = runCatching {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return true
+        val nw = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(nw) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(true)
 
     private val BASE  = "https://jkanime.net"
     private val BASE2 = "https://www.jkanime.net"  // used for AJAX endpoints
@@ -61,6 +116,7 @@ class JKAnimeRepository {
     }.socketFactory
 
     private val client = OkHttpClient.Builder()
+        .cache(httpCache)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -78,60 +134,127 @@ class JKAnimeRepository {
                 store.values.toList()
         })
         .addInterceptor { chain ->
-            val req = chain.request().newBuilder()
+            // Application interceptor: serve stale cache when offline regardless
+            // of the original Cache-Control. Strips the bucket header before
+            // sending it on the wire.
+            var req = chain.request()
+            if (!hasNetwork() && req.method == "GET") {
+                req = req.newBuilder()
+                    .cacheControl(CacheControl.Builder().maxStale(1, TimeUnit.DAYS).build())
+                    .build()
+            }
+            chain.proceed(req.newBuilder()
                 .header("User-Agent", UA)
+                .removeHeader(Bucket.HEADER)
+                .build())
+        }
+        .addNetworkInterceptor { chain ->
+            // Network interceptor: rewrite the response's Cache-Control based on
+            // the bucket the caller declared. jkanime sends "no-cache" — without
+            // this rewrite OkHttp would never serve a cached response.
+            val req = chain.request()
+            val bucket = req.header(Bucket.HEADER)
+            val resp = chain.proceed(req)
+            val ttl = ttlSecondsFor(bucket)
+            if (ttl <= 0 || req.method != "GET" || resp.code !in 200..299) resp
+            else resp.newBuilder()
+                .removeHeader("Pragma")
+                .removeHeader("Cache-Control")
+                .header("Cache-Control", "public, max-age=$ttl")
                 .build()
-            chain.proceed(req)
         }
         .build()
+
+    // A3: exponential backoff with jitter. Used by get()/post() for transient
+    // failures (network blips, jkanime WAF returning empty body, 5xx).
+    private suspend fun <T> withRetry(
+        times: Int = 3,
+        initialDelayMs: Long = 200L,
+        block: suspend () -> T,
+        retryIf: (T) -> Boolean
+    ): T {
+        var delayMs = initialDelayMs
+        repeat(times - 1) {
+            val result = block()
+            if (!retryIf(result)) return result
+            delay(delayMs + Random.nextLong(0, delayMs / 2 + 1))
+            delayMs *= 2
+        }
+        return block()
+    }
 
     // GET — adds browser-ish headers so Cloudflare doesn't gate the page.
     // The original APK only sends User-Agent and works on physical Android TVs,
     // but emulators get a stricter CF challenge; Accept-Language + Accept help.
+    // `bucket` selects the cache TTL (see Bucket object). Retries transient
+    // empty-body failures with exponential backoff.
     @Suppress("UNUSED_PARAMETER")
-    private suspend fun get(url: String, referer: String = BASE): String = withContext(Dispatchers.IO) {
-        runCatching {
-            val req = Request.Builder().url(url)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
-                .get()
-                .build()
-            val resp = client.newCall(req).execute()
-            val code = resp.code
-            val body = resp.use { it.body?.string() ?: "" }
-            Log.d("JKAnimeRepo", "GET $url -> $code (${body.length} bytes)")
-            if (code !in 200..299) {
-                Log.w("JKAnimeRepo", "GET non-2xx, first 200 chars: ${body.take(200)}")
-            }
-            body
-        }.getOrElse {
-            Log.e("JKAnimeRepo", "GET $url threw", it)
-            ""
+    private suspend fun get(
+        url: String,
+        referer: String = BASE,
+        bucket: String = Bucket.NONE,
+        forceNetwork: Boolean = false
+    ): String =
+        withContext(Dispatchers.IO) {
+            withRetry(
+                times = 3,
+                initialDelayMs = 250L,
+                block = {
+                    runCatching {
+                        val builder = Request.Builder().url(url)
+                            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                            .header("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
+                            .header(Bucket.HEADER, bucket)
+                            .get()
+                        if (forceNetwork) builder.cacheControl(CacheControl.FORCE_NETWORK)
+                        val req = builder.build()
+                        val resp = client.newCall(req).execute()
+                        val code = resp.code
+                        val cached = resp.cacheResponse != null && resp.networkResponse == null
+                        val body = resp.use { it.body?.string() ?: "" }
+                        Log.d("JKAnimeRepo", "GET $url -> $code (${body.length} bytes, cached=$cached, bucket=$bucket)")
+                        if (code !in 200..299) {
+                            Log.w("JKAnimeRepo", "GET non-2xx, first 200 chars: ${body.take(200)}")
+                        }
+                        body
+                    }.getOrElse {
+                        Log.e("JKAnimeRepo", "GET $url threw", it)
+                        ""
+                    }
+                },
+                retryIf = { it.isEmpty() }
+            )
         }
-    }
 
     // POST — kept minimal to match the original APK (jkanime's WAF rejects
     // requests that include Referer / X-Requested-With from off-browser clients).
     @Suppress("UNUSED_PARAMETER")
     private suspend fun post(url: String, params: Map<String, String>, referer: String = BASE): String =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val body = FormBody.Builder().apply { params.forEach { (k, v) -> add(k, v) } }.build()
-                val req = Request.Builder().url(url).post(body)
-                    .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    .build()
-                val resp = client.newCall(req).execute()
-                val code = resp.code
-                val text = resp.use { it.body?.string() ?: "" }
-                Log.d("JKAnimeRepo", "POST $url -> $code (${text.length} bytes)")
-                if (code !in 200..299) {
-                    Log.w("JKAnimeRepo", "POST non-2xx, first 200 chars: ${text.take(200)}")
-                }
-                text
-            }.getOrElse {
-                Log.e("JKAnimeRepo", "POST $url threw", it)
-                ""
-            }
+            withRetry(
+                times = 3,
+                initialDelayMs = 250L,
+                block = {
+                    runCatching {
+                        val body = FormBody.Builder().apply { params.forEach { (k, v) -> add(k, v) } }.build()
+                        val req = Request.Builder().url(url).post(body)
+                            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                            .build()
+                        val resp = client.newCall(req).execute()
+                        val code = resp.code
+                        val text = resp.use { it.body?.string() ?: "" }
+                        Log.d("JKAnimeRepo", "POST $url -> $code (${text.length} bytes)")
+                        if (code !in 200..299) {
+                            Log.w("JKAnimeRepo", "POST non-2xx, first 200 chars: ${text.take(200)}")
+                        }
+                        text
+                    }.getOrElse {
+                        Log.e("JKAnimeRepo", "POST $url threw", it)
+                        ""
+                    }
+                },
+                retryIf = { it.isEmpty() }
+            )
         }
 
     // Unescape HTML entities — matches the original app's 8-step chain
@@ -143,7 +266,7 @@ class JKAnimeRepository {
     // ── HOME ─────────────────────────────────────────────────────────────────
 
     suspend fun getRecentAnime(): List<AnimeSection> = runCatching {
-        val html = get("$BASE/")
+        val html = get("$BASE/", bucket = Bucket.HOME)
         val sections = mutableListOf<AnimeSection>()
 
         // Extract the three sections exactly as the original app does
@@ -233,7 +356,7 @@ class JKAnimeRepository {
     // Fetches anime detail page and returns metadata + episode count via AJAX
     // Replicates DetailFragment$jkanimeFetch$1.invoke2()
     suspend fun getAnimeDetail(animeUrl: String): Anime? = runCatching {
-        val html = get(animeUrl)
+        val html = get(animeUrl, bucket = Bucket.DETAIL)
         if (html.isEmpty()) return@runCatching null
 
         // Cover image — from: <div class="anime_pic pc" style="display: none;"><img src="https://cdn.jkdesa.com/assets/images/animes/image/
@@ -294,7 +417,7 @@ class JKAnimeRepository {
     //     animes whose first episode is 0 (the original ":0," detector — kept
     //     because the original app ships with it and it works on real animes).
     suspend fun getEpisodeList(animeUrl: String): List<Episode> = runCatching {
-        val html = get(animeUrl)
+        val html = get(animeUrl, bucket = Bucket.DETAIL)
         if (html.isEmpty()) {
             Log.w("JKAnimeRepo", "getEpisodeList: empty HTML for $animeUrl")
             return@runCatching emptyList()
@@ -303,9 +426,10 @@ class JKAnimeRepository {
         if (first.isNotEmpty()) return@runCatching first
 
         // Sometimes the first GET returns a stale or CSRF-mismatched session
-        // (cookie set in this response can't sign the immediate POST). Retry once
-        // with a fresh GET so the POST uses cookies from a confirmed session.
-        val freshHtml = get(animeUrl)
+        // (cookie set in this response can't sign the immediate POST). Force a
+        // fresh GET (bypass cache) so the POST uses cookies from a confirmed
+        // session.
+        val freshHtml = get(animeUrl, bucket = Bucket.NONE, forceNetwork = true)
         val second = parseEpisodesFromHtml(freshHtml, animeUrl)
         if (second.isEmpty()) {
             Log.w("JKAnimeRepo", "getEpisodeList: empty result for $animeUrl " +
@@ -454,7 +578,7 @@ class JKAnimeRepository {
 
     suspend fun getSchedule(): List<Schedule> = runCatching {
         // NX normalizes "filtro" class (today's highlighted day) before splitting
-        val raw = get("$BASE/horario")
+        val raw = get("$BASE/horario", bucket = Bucket.HOME)
         if (raw.isEmpty()) {
             Log.w("JKAnimeRepo", "getSchedule: empty HTML from /horario")
             return@runCatching emptyList()
@@ -533,7 +657,7 @@ class JKAnimeRepository {
     // ── TOP ANIME ────────────────────────────────────────────────────────────
 
     suspend fun getTopAnime(): List<Anime> = runCatching {
-        val html = get("$BASE/top/")
+        val html = get("$BASE/top/", bucket = Bucket.HOME)
         val result = mutableListOf<Anime>()
         var pos = 0
         while (true) {
@@ -574,7 +698,7 @@ class JKAnimeRepository {
         if (type.isNotBlank())   params.add("tipo=$type")
         if (status.isNotBlank()) params.add("estado=$status")
         val url = "$BASE/directorio/1/?" + params.joinToString("&")
-        parseDirectoryJson(get(url))
+        parseDirectoryJson(get(url, bucket = Bucket.DIRECTORY))
     }.onFailure {
         Log.e("JKAnimeRepo", "getDirectory failed", it)
     }.getOrElse { emptyList() }
@@ -648,8 +772,13 @@ class JKAnimeRepository {
     }
 
     // Shared parser for listing pages that use the jkanime `anime__item` card layout
-    // (search results, directory). Matches NX-style markers.
+    // (search results, directory). A2: prefer jsoup CSS selectors (resilient to
+    // minor markup tweaks) and fall back to the legacy string-index parser when
+    // jsoup yields zero results — keeps v1.0 behaviour as a safety net.
     private fun parseAnimeItemList(html: String): List<Anime> {
+        val viaJsoup = runCatching { parseAnimeItemListJsoup(html) }.getOrDefault(emptyList())
+        if (viaJsoup.isNotEmpty()) return viaJsoup
+
         val result = mutableListOf<Anime>()
         var pos = 0
         val containerMarker = "<div class=\"anime__item\">"
@@ -688,6 +817,35 @@ class JKAnimeRepository {
         }
         return result.distinctBy { it.slug }
     }
+
+    // Jsoup-based parser for jkanime `.anime__item` cards.
+    //   - cover: `data-setbg` attribute on the inner div/figure
+    //   - href: first `a[href*=jkanime.net]` inside the card
+    //   - title: `h5` text (jkanime wraps it in <a>, jsoup .text() handles that)
+    private fun parseAnimeItemListJsoup(html: String): List<Anime> {
+        if (html.isEmpty()) return emptyList()
+        val doc = Jsoup.parse(html)
+        val cards = doc.select("div.anime__item")
+        if (cards.isEmpty()) return emptyList()
+        val out = ArrayList<Anime>(cards.size)
+        for (card in cards) {
+            val title = card.selectFirst("h5")?.text()?.trim().orEmpty()
+            if (title.isBlank()) continue
+            val href = card.selectFirst("a[href*=jkanime.net]")?.attr("href").orEmpty()
+            if (href.isBlank()) continue
+            // `data-setbg` is the lazy-load attribute; fall back to a direct img src.
+            val cover = card.selectFirst("[data-setbg]")?.attr("data-setbg").orEmpty()
+                .ifBlank { card.selectFirst("img[src*=jkdesa]")?.attr("src").orEmpty() }
+            out.add(Anime(slug = href, title = unescape(title), coverUrl = cover))
+        }
+        return out.distinctBy { it.slug }
+    }
+
+    // Returns true if jsoup can parse the given HTML as a document with body.
+    // Cheap sanity check used to decide whether to attempt structural parsing.
+    @Suppress("unused")
+    private fun jsoupSane(html: String): Boolean =
+        runCatching { Jsoup.parse(html).body() != null }.getOrDefault(false)
 }
 
 data class AnimeSection(val title: String, val animes: List<Anime>)
