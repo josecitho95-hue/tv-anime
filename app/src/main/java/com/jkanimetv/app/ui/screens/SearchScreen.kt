@@ -2,6 +2,7 @@ package com.jkanimetv.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -9,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -35,6 +37,7 @@ fun SearchScreen(
     onAnimeClick: (Anime) -> Unit
 ) {
     val state by vm.search.collectAsState()
+    val history by vm.searchHistory.collectAsState()
     var query by remember { mutableStateOf("") }
     var fieldFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -81,7 +84,12 @@ fun SearchScreen(
                 }
                 BasicTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = {
+                        query = it
+                        // Live search — VM debounces by 350 ms before hitting
+                        // the network, so this is cheap even on every keystroke.
+                        vm.search(it)
+                    },
                     textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp),
                     cursorBrush = SolidColor(AccentRed),
                     singleLine = true,
@@ -108,6 +116,33 @@ fun SearchScreen(
                     color = Color.White,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                 )
+            }
+        }
+
+        // C3: recent searches chips. Only visible when the user hasn't typed
+        // anything — we don't want to compete with live results.
+        if (query.isBlank() && history.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "Búsquedas recientes",
+                color = TextSecondary,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                history.take(6).forEach { q ->
+                    HistoryChip(
+                        label = q,
+                        onClick = {
+                            query = q
+                            vm.search(q)
+                        },
+                        onRemove = { vm.deleteSearchHistoryItem(q) }
+                    )
+                }
             }
         }
 
@@ -141,6 +176,34 @@ fun SearchScreen(
                     AnimeCard(anime = state.results[idx], onClick = { onAnimeClick(state.results[idx]) })
                 }
             }
+        }
+    }
+}
+
+// Compact recent-search chip with an inline "×" to forget the query. Pressing
+// the chip body re-runs the search; pressing × removes it.
+@Composable
+private fun HistoryChip(label: String, onClick: () -> Unit, onRemove: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (focused) CardBgHover else CardBg)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+    ) {
+        Text(label, color = TextPrimary, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("×", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

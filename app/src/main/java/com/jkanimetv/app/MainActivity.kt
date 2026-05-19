@@ -1,8 +1,19 @@
 package com.jkanimetv.app
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.jkanimetv.app.work.EpisodeCheckWorker
+import java.util.concurrent.TimeUnit
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -17,6 +28,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -42,14 +54,57 @@ import com.jkanimetv.app.ui.theme.TvTypography
 import com.jkanimetv.app.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* result ignored — silent if denied */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        scheduleEpisodeCheck()
+        maybeRequestNotificationPermission()
+
+        // Deep-link from a "new episode" notification: extract the slug now
+        // (the composable reads it via savedInstance) and pass into nav.
+        val openSlug = intent?.getStringExtra(EpisodeCheckWorker.EXTRA_OPEN_ANIME_SLUG)
+
         setContent {
             @OptIn(ExperimentalTvMaterial3Api::class)
             MaterialTheme(colorScheme = darkColorScheme(), typography = TvTypography) {
-                AppNavigation()
+                AppNavigation(initialAnimeSlug = openSlug)
             }
         }
+    }
+
+    // singleTop activity: new intents come here, not through onCreate. Forward
+    // the deep-link slug to the running composable via a static channel so it
+    // can navigate to detail without a full restart.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val slug = intent.getStringExtra(EpisodeCheckWorker.EXTRA_OPEN_ANIME_SLUG) ?: return
+        pendingDeepLinkSlug = slug
+    }
+
+    private fun scheduleEpisodeCheck() {
+        val request = PeriodicWorkRequestBuilder<EpisodeCheckWorker>(6, TimeUnit.HOURS)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            EpisodeCheckWorker.UNIQUE_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED) return
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    companion object {
+        // Updated by onNewIntent; the composable observes this in a LaunchedEffect
+        // and clears it after navigating. Static is fine because there's only
+        // ever one MainActivity instance (singleTop).
+        @Volatile var pendingDeepLinkSlug: String? = null
     }
 }
 
@@ -60,16 +115,37 @@ private val SidebarTabs = listOf(
     SidebarTab("schedule",  "Horario",   Icons.Filled.DateRange),
     SidebarTab("browse",    "Explorar",  Icons.Filled.Explore),
     SidebarTab("search",    "Buscar",    Icons.Filled.Search),
-    SidebarTab("favorites", "Favoritos", Icons.Filled.Favorite)
+    SidebarTab("favorites", "Favoritos", Icons.Filled.Favorite),
+    SidebarTab("settings",  "Ajustes",   Icons.Filled.Settings)
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun AppNavigation() {
+fun AppNavigation(initialAnimeSlug: String? = null) {
     val vm: MainViewModel = viewModel()
     val navController = rememberNavController()
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route?.substringBefore('/')
+
+    // Initial deep-link from a notification's PendingIntent.
+    LaunchedEffect(initialAnimeSlug) {
+        if (!initialAnimeSlug.isNullOrBlank()) {
+            vm.selectAnime(initialAnimeSlug)
+            navController.navigate("detail") { launchSingleTop = true }
+        }
+    }
+    // Subsequent deep-links delivered via onNewIntent — poll once per recomposition.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.flow.flow {
+            while (true) { emit(MainActivity.pendingDeepLinkSlug); kotlinx.coroutines.delay(300) }
+        }.collect { slug ->
+            if (!slug.isNullOrBlank()) {
+                MainActivity.pendingDeepLinkSlug = null
+                vm.selectAnime(slug)
+                navController.navigate("detail") { launchSingleTop = true }
+            }
+        }
+    }
 
     Row(modifier = Modifier.fillMaxSize().background(DarkBg)) {
         // Sidebar permanente — 200 dp, sin animaciones, sin tricks de foco.
@@ -152,6 +228,9 @@ fun AppNavigation() {
                 FavoritesScreen(vm = vm, onAnimeClick = { anime ->
                     vm.selectAnime(anime.slug); navController.navigate("detail") { launchSingleTop = true }
                 })
+            }
+            composable("settings") {
+                SettingsScreen(vm = vm)
             }
             composable("detail") {
                 val slug by vm.currentAnimeUrl.collectAsState()

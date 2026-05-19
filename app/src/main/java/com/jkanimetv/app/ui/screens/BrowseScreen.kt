@@ -104,7 +104,20 @@ fun BrowseScreen(
                 )
             }
             else -> {
-                val gridState = rememberLazyGridState()
+                // C4: restore scroll position when re-entering Browse. The grid
+                // state is local but we seed it from the VM's stored values.
+                val savedIdx by vm.browseScrollIndex.collectAsState()
+                val savedOff by vm.browseScrollOffset.collectAsState()
+                val gridState = rememberLazyGridState(
+                    initialFirstVisibleItemIndex = savedIdx,
+                    initialFirstVisibleItemScrollOffset = savedOff
+                )
+                LaunchedEffect(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset) {
+                    vm.setBrowseScroll(
+                        gridState.firstVisibleItemIndex,
+                        gridState.firstVisibleItemScrollOffset
+                    )
+                }
                 val shouldLoadMore by remember {
                     derivedStateOf {
                         val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
